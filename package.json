@@ -1,0 +1,17 @@
+{
+  "name": "cotyx",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev": "docker-compose up --build",
+    "stop": "docker-compose down"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

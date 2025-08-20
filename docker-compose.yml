@@ -1,0 +1,141 @@
+version: '3.8'
+
+services:
+  # --- API Gateway ---
+  api-gateway:
+    build: ./services/api-gateway
+    ports:
+      - "4000:4000" # Expose gateway to the host machine
+    volumes:
+      - ./services/api-gateway/src:/app/src
+    env_file: .env
+    depends_on:
+      - users-service
+      - calls-service
+    networks:
+      - sales_portal_net
+
+  # --- Users Service (Python/FastAPI) ---
+  users-service:
+    build: ./services/users-service
+    volumes:
+      - ./services/users-service/src:/app/src
+    env_file: .env
+    depends_on:
+      users_db_postgres:
+        condition: service_healthy
+    networks:
+      - sales_portal_net
+
+  # --- Calls Service (Python/FastAPI) ---
+  calls-service:
+    build: ./services/calls-service
+    volumes:
+      - ./services/calls-service/src:/app/src
+    env_file: .env
+    depends_on:
+      calls_db_postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - sales_portal_net
+
+  # --- Webhooks Service (Node.js/Express) ---
+  webhooks-service:
+    build: ./services/webhooks-service
+    volumes:
+      - ./services/webhooks-service/src:/app/src
+    env_file: .env
+    depends_on:
+      - rabbitmq
+    networks:
+      - sales_portal_net
+
+  # --- Analysis Service (Python Worker) ---
+  analysis-service:
+    build: ./services/analysis-service
+    volumes:
+      - ./services/analysis-service/src:/app/src
+    env_file: .env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - sales_portal_net
+
+  # --- Frontend Dashboard (Next.js) ---
+  web-dashboard:
+    build:
+      context: ./apps/web-dashboard
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/web-dashboard:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - sales_portal_net
+
+  # --- DATABASES ---
+  users_db_postgres:
+    image: postgres:14-alpine
+    environment:
+      POSTGRES_USER: ${USERS_DB_USER}
+      POSTGRES_PASSWORD: ${USERS_DB_PASSWORD}
+      POSTGRES_DB: ${USERS_DB_NAME}
+    ports:
+      - "5432:5432" # Expose for local debugging
+    volumes:
+      - users_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${USERS_DB_USER} -d ${USERS_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sales_portal_net
+
+  calls_db_postgres:
+    image: postgres:14-alpine
+    environment:
+      POSTGRES_USER: ${CALLS_DB_USER}
+      POSTGRES_PASSWORD: ${CALLS_DB_PASSWORD}
+      POSTGRES_DB: ${CALLS_DB_NAME}
+    ports:
+      - "5433:5432" # Use a different host port
+    volumes:
+      - calls_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CALLS_DB_USER} -d ${CALLS_DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sales_portal_net
+
+  # --- MESSAGE QUEUE ---
+  rabbitmq:
+    image: rabbitmq:3.9-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    ports:
+      - "5672:5672" # AMQP port
+      - "15672:15672" # Management UI
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sales_portal_net
+
+volumes:
+  users_db_data:
+  calls_db_data:
+
+networks:
+  sales_portal_net:
+    driver: bridge
